@@ -17,4 +17,10 @@ add_executable(
 	src/main.cpp
 )
 
-target_link_libraries(${PROJECT_NAME} PRIVATE glfw glm::glm Vulkan::Headers)
+target_link_libraries(
+	${PROJECT_NAME}
+	PRIVATE
+		stdc++exp
+		glfw glm::glm
+		Vulkan::Headers
+)
