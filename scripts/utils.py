@@ -1,3 +1,5 @@
+import os
+import pathlib
 import shutil
 
 
@@ -21,3 +23,11 @@ def get_container_engine() -> str:
         return podman
 
     return docker
+
+
+def get_project_dir() -> str:
+    for dir in pathlib.Path(__file__).parents:
+        if os.path.exists(os.path.join(dir, ".git")):
+            return dir.resolve()
+
+    raise EnvironmentError("Can't detect project directory (.git missing)")

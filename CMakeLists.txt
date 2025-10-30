@@ -11,7 +11,6 @@ find_package(glfw3 REQUIRED)
 find_package(glm REQUIRED)
 find_package(VulkanHeaders REQUIRED)
 
-
 add_executable(
 	${PROJECT_NAME}
 	src/main.cpp
@@ -22,6 +21,7 @@ target_link_libraries(
 	PRIVATE
 		-static-libstdc++
 		stdc++exp
-		glfw glm::glm
+		glfw
+		glm::glm
 		Vulkan::Headers
 )

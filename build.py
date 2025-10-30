@@ -1,5 +1,4 @@
 import os
-import pathlib
 import subprocess
 import sys
 
@@ -7,13 +6,19 @@ import scripts.utils as utils
 import scripts.vars as vars
 
 
-def build_in_container(container_engine: str, pass_args: list):
+def build_in_container(
+    container_engine: str,
+    project_dir: str,
+    pass_args: list,
+):
+    conan_dir = os.path.join(project_dir, ".conan2")
     res = subprocess.run([
         container_engine,
         "run",
         "--rm",
-        "-v", ".:/app:Z",
-        "-v", "./.conan2:/root/.conan2:Z",
+        "-e", "CONAN_HOME={}".format(conan_dir),
+        "-v", "{}:{}:Z".format(project_dir, project_dir),
+        "-w", project_dir,
         vars.IMAGE_NAME,
         "build.py", "--host",
     ] + pass_args)
@@ -37,7 +42,7 @@ def generate_cmake():
 
 
 def build() -> bool:
-    print("================ BUILDING ===============")
+    print("================ BUILDING ===============", flush=True)
     res = subprocess.run([
         "ninja",
         "-C",
@@ -51,11 +56,11 @@ def build() -> bool:
         raise RuntimeError("Build failed")
 
 
-def run(current_folder: str):
-    print("================ RUNNING ================")
+def run(project_dir: str):
+    print("================ RUNNING ================", flush=True)
     res = subprocess.run([
         os.path.join(
-            current_folder,
+            project_dir,
             "build",
             "Release",
             "SkyHigh",
@@ -67,9 +72,8 @@ def run(current_folder: str):
 
 
 def main():
-    current_folder = pathlib.Path(__file__).parent.resolve()
-
     args = sys.argv[1:]
+    project_dir = utils.get_project_dir()
 
     build_on_host = False
     should_generate_cmake = False
@@ -91,10 +95,10 @@ def main():
     else:
         container_args = list(filter(lambda val: val != "run", args))
         container_engine = utils.get_container_engine()
-        build_in_container(container_engine, container_args)
+        build_in_container(container_engine, project_dir, container_args)
 
     if should_run_after_build:
-        run(current_folder)
+        run(project_dir)
 
 
 if __name__ == "__main__":

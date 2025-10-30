@@ -1,5 +1,4 @@
 import os
-import pathlib
 import platform
 import subprocess
 import sys
@@ -8,7 +7,7 @@ import scripts.utils as utils
 import scripts.vars as vars
 
 
-def prepare_builder_container(container_engine: str):
+def prepare_builder_container(container_engine: str, project_dir: str):
     res = subprocess.run([
         container_engine,
         "build",
@@ -19,14 +18,14 @@ def prepare_builder_container(container_engine: str):
     if res.returncode != 0:
         raise RuntimeError("Failed to create base builder image")
 
-    os.mkdir(".conan2")
-
+    conan_dir = os.path.join(project_dir, ".conan2")
     res = subprocess.run([
         container_engine,
         "run",
         "--rm",
-        "-v", ".:/app:Z",
-        "-v", "./.conan2:/root/.conan2:Z",
+        "-e", "CONAN_HOME={}".format(conan_dir),
+        "-v", "{}:{}:Z".format(project_dir, project_dir),
+        "-w", project_dir,
         vars.IMAGE_NAME,
         "prepare.py", "--host", "--no-venv",
     ])
@@ -35,19 +34,19 @@ def prepare_builder_container(container_engine: str):
         raise RuntimeError("Failed to prepare builder")
 
 
-def prepare_venv(os_name: str, current_folder: str) -> str:
+def prepare_venv(os_name: str, project_dir: str) -> str:
     bin_folder = "bin"
     if os_name == "Windows":
         bin_folder = "Scripts"
 
     venv_bin_path = os.path.join(
-        current_folder,
+        project_dir,
         vars.VENV_NAME,
         bin_folder,
     )
 
     if os.path.exists(venv_bin_path):
-        print("Venv exists. Skipping venv generation")
+        print("Venv exists. Skipping venv generation", flush=True)
         return venv_bin_path
 
     res = subprocess.run([
@@ -88,7 +87,7 @@ def prepare_conan(venv_bin_path):
         vars.CONAN_PROFILE_NAME
     ])
     if res.returncode == 0:
-        print("Conan profile exists")
+        print("Conan profile exists", flush=True)
         return
 
     res = subprocess.run([
@@ -127,6 +126,7 @@ def install_project_deps(venv_bin_path):
 
 def main():
     args = sys.argv[1:]
+    project_dir = utils.get_project_dir()
 
     os_name = platform.system()
     build_on_host = False
@@ -142,17 +142,16 @@ def main():
     if build_on_host:
         utils.check_deps()
 
-        current_folder = pathlib.Path(__file__).parent.resolve()
         venv_bin_path = ""
         if use_venv:
-            venv_bin_path = prepare_venv(os_name, current_folder)
+            venv_bin_path = prepare_venv(os_name, project_dir)
 
         install_conan(venv_bin_path)
         prepare_conan(venv_bin_path)
         install_project_deps(venv_bin_path)
     else:
         container_engine = utils.get_container_engine()
-        prepare_builder_container(container_engine)
+        prepare_builder_container(container_engine, project_dir)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,4 @@
 FROM fedora:42
-WORKDIR /app
 RUN sudo dnf install -y \
 	cmake \
 	g++ \
