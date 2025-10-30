@@ -13,4 +13,11 @@ find_package(VulkanHeaders REQUIRED)
 
 include_directories(include)
 
+add_compile_options(
+	-pedantic
+	-Wall
+	-Werror
+	-Wextra
+)
+
 add_subdirectory(src)
