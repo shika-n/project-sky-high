@@ -1,58 +1,73 @@
-#include <cstdlib>
+#include <cstdint>
 #include <exception>
 #include <print>
 #include <stdexcept>
 
 #include <GLFW/glfw3.h>
-#include <vulkan/vulkan_core.h>
 #include <vulkan/vulkan_raii.hpp>
 
 #include "macros.h"
 
+constexpr uint32_t WIDTH = 1280;
+constexpr uint32_t HEIGHT = 720;
+
 class ProjectSkyHigh {
 	public:
 		void run() {
+			init_window();
+			init_vulkan();
+			main_loop();
+			cleanup();
+		}
+
+	private:
+		GLFWwindow *window = nullptr;
+
+		void init_window() {
 			if (!glfwInit()) {
 				throw std::runtime_error("Failed to initialize GLFW");
 			}
 
-			GLFWwindow *window = glfwCreateWindow(
-				1280,
-				720,
-				"Project Sky High",
+			glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+			glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+
+			window = glfwCreateWindow(
+				WIDTH,
+				HEIGHT,
+				"Project Sky-High",
 				nullptr,
 				nullptr
 			);
 
 			glfwShowWindow(window);
+		}
 
+		void init_vulkan() {
+			constexpr vk::ApplicationInfo app_info {
+				.pApplicationName = "Project Sky-High",
+				.applicationVersion = VK_MAKE_VERSION(0, 1, 0),
+				.pEngineName = "Sky-High Engine",
+				.engineVersion = VK_MAKE_VERSION(0, 1, 0),
+				.apiVersion = vk::ApiVersion14,
+			};
+			vk::InstanceCreateInfo create_info {
+				.pApplicationInfo = &app_info,
+			};
+			vk::raii::Context context;
+			vk::raii::Instance instance(context, create_info);
+		}
+
+		void main_loop() {
 			while (!glfwWindowShouldClose(window)) {
 				glfwSwapBuffers(window);
 				glfwPollEvents();
 			}
-
-			glfwDestroyWindow(window);
-
-			glfwTerminate();
-
-		}
-
-	private:
-		void init() {
-			VkInstance instance;
-			VkApplicationInfo appInfo{};
-			appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-			appInfo.pApplicationName = "SkyHigh Engine";
-
-			std::println("App name: {}", appInfo.pApplicationName);
-		}
-
-		void main_loop() {
-
 		}
 
 		void cleanup() {
+			glfwDestroyWindow(window);
 
+			glfwTerminate();
 		}
 };
 
