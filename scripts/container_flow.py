@@ -24,7 +24,7 @@ def prepare_builder(container_engine: str, project_dir: str):
         "-v", "{}:{}:Z".format(project_dir, project_dir),
         "-w", project_dir,
         conf.IMAGE_NAME,
-        "prepare.py", "--host", "--no-venv",
+        "build.py", "prepare", "--host", "--no-venv",
     ])
 
     if res.returncode != 0:
@@ -45,7 +45,7 @@ def build(
         "-v", "{}:{}:Z".format(project_dir, project_dir),
         "-w", project_dir,
         conf.IMAGE_NAME,
-        "build.py", "--host",
+        "build.py", "build", "--host",
     ] + pass_args)
 
     if res.returncode != 0:
