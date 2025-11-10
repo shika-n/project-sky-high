@@ -74,7 +74,11 @@ private:
 		glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
 		window = glfwCreateWindow(
-			WIDTH, HEIGHT, "Project Sky-High", nullptr, nullptr
+			WIDTH,
+			HEIGHT,
+			"Project Sky-High",
+			nullptr,
+			nullptr
 		);
 	}
 
@@ -119,7 +123,8 @@ private:
 					[extension =
 						 extensions[i]](auto const& available_extension) {
 						return std::strcmp(
-								   available_extension.extensionName, extension
+								   available_extension.extensionName,
+								   extension
 							   ) == 0;
 					}
 				)) {
@@ -168,7 +173,8 @@ private:
 				available_extensions,
 				[extension](auto const& available_extension) {
 					return std::strcmp(
-						available_extension.extensionName, extension
+						available_extension.extensionName,
+						extension
 					);
 				}
 			);
@@ -254,14 +260,16 @@ private:
 		std::unordered_map<vk::raii::PhysicalDevice*, DeviceSuitableness>
 			device_suitableness_map;
 		std::ranges::for_each(
-			devices, [this, &device_suitableness_map](auto& device) {
+			devices,
+			[this, &device_suitableness_map](auto& device) {
 				device_suitableness_map[&device] =
 					get_device_suitableness(device);
 			}
 		);
 
 		auto suitable_devices = std::ranges::filter_view(
-			devices, [&device_suitableness_map](auto& device) {
+			devices,
+			[&device_suitableness_map](auto& device) {
 				return device_suitableness_map[&device].is_suitable;
 			}
 		);
@@ -320,7 +328,9 @@ private:
 
 		device = vk::raii::Device(physical_device, device_create_info);
 		graphics_queue = vk::raii::Queue(
-			device, device_suitableness.graphics_queue_index, 0
+			device,
+			device_suitableness.graphics_queue_index,
+			0
 		);
 		present_queue =
 			vk::raii::Queue(device, device_suitableness.present_queue_index, 0);
