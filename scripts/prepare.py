@@ -71,6 +71,9 @@ def prepare_conan(venv_bin_path):
         raise RuntimeError("Failed to create conan profile")
 
 
+# TODO: Add clean/rebuild subcommand
+
+
 def install_project_deps(venv_bin_path):
     conan_exec = os.path.join(venv_bin_path, "conan")
     build_args = []

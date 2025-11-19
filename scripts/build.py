@@ -1,6 +1,8 @@
 import os
 import subprocess
 
+from . import utils
+
 
 def generate_cmake():
     res = subprocess.run([
@@ -10,13 +12,15 @@ def generate_cmake():
         "Ninja",
         "--preset",
         "conan-debug",
+        "-D",
+        "SLANGC_EXECUTABLE=" + utils.get_slangc()
     ])
 
     if res.returncode != 0:
         raise RuntimeError("Failed to generate cmake")
 
 
-def build() -> bool:
+def build():
     print("================ BUILDING ===============", flush=True)
     res = subprocess.run([
         "ninja",
