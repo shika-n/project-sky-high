@@ -4,7 +4,9 @@
 #include <cstring>
 #include <exception>
 #include <format>
+#include <fstream>
 #include <functional>
+#include <ios>
 #include <limits>
 #include <map>
 #include <print>
@@ -94,6 +96,7 @@ private:
 		create_logical_device();
 		create_swapchain();
 		create_image_views();
+		create_graphics_pipeline();
 	}
 
 	void main_loop() {
@@ -474,6 +477,26 @@ private:
 			image_view_create_info.image = image;
 			swapchain_image_views.emplace_back(device, image_view_create_info);
 		}
+	}
+
+	void create_graphics_pipeline() {
+		auto shader_code = read_shader_file("shaders/slang.spv");
+		DLOG("Shader size: {}", shader_code.size() * sizeof(char));
+	}
+
+	static std::vector<char> read_shader_file(char const* filepath) {
+		std::ifstream file(filepath, std::ios::ate | std::ios::binary);
+		if (!file.is_open()) {
+			throw std::runtime_error("Failed to open shader file");
+		}
+
+		std::vector<char> buffer(file.tellg());
+		file.seekg(0, std::ios::beg);
+		file.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+
+		file.close();
+
+		return buffer;
 	}
 };
 
