@@ -28,6 +28,10 @@ function (add_slang_shader_target TARGET)
 		COMMAND ${CMAKE_COMMAND} -E make_directory ${SHADERS_OUTPUT_DIR}
 	)
 
+	if (NOT DEFINED SLANGC_EXECUTABLE)
+		message(FATAL_ERROR "No slangc defined. Try running build.py build --generate")
+	endif()
+
 	add_custom_command(
 		OUTPUT ${SHADERS_OUTPUT_DIR}/slang.spv
 		COMMAND ${SLANGC_EXECUTABLE} ${SHADER_SOURCES}
