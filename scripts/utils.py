@@ -39,11 +39,12 @@ def get_project_dir() -> str:
 def get_slangc():
     slangc_exec = shutil.which("slangc")
     if slangc_exec is None:
-        print("No slangc in PATH. Checking Neovim's Mason")
+        print("No slangc in PATH. Checking Neovim's Mason", flush=True)
         neovim_exec = shutil.which("nvim")
         if neovim_exec is None:
             print(
-                "No nvim in PATH to check for slangc installed via Mason"
+                "No nvim in PATH to check for slangc installed via Mason",
+                flush=True,
             )
             raise EnvironmentError(
                 "slangc required to compile shaders"
@@ -70,9 +71,9 @@ def get_slangc():
                 " nor does it seem to be installed via Mason"
             )
 
-        print("slangc found: {}".format(slangc_exec))
+        print("slangc found: {}".format(slangc_exec), flush=True)
     else:
-        print("slangc in PATH: {}".format(slangc_exec))
+        print("slangc in PATH: {}".format(slangc_exec), flush=True)
 
     return slangc_exec
 
