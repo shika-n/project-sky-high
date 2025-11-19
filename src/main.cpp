@@ -47,7 +47,7 @@ public:
 	}
 
 private:
-	GLFWwindow* window = nullptr;
+	GLFWwindow *window = nullptr;
 
 	vk::raii::Context context {};
 	vk::raii::Instance instance = nullptr;
@@ -65,7 +65,7 @@ private:
 
 	DeviceSuitableness device_suitableness {};
 
-	std::vector<char const*> required_device_extensions = {
+	std::vector<const char *> required_device_extensions = {
 		vk::KHRSwapchainExtensionName,
 		vk::KHRSpirv14ExtensionName,
 		vk::KHRSynchronization2ExtensionName,
@@ -80,13 +80,7 @@ private:
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 		glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
-		window = glfwCreateWindow(
-			WIDTH,
-			HEIGHT,
-			"Project Sky-High",
-			nullptr,
-			nullptr
-		);
+		window = glfwCreateWindow(WIDTH, HEIGHT, "Project Sky-High", nullptr, nullptr);
 	}
 
 	void init_vulkan() {
@@ -123,25 +117,19 @@ private:
 		uint32_t extension_count = 0;
 		auto extensions = glfwGetRequiredInstanceExtensions(&extension_count);
 
-		auto available_extensions =
-			context.enumerateInstanceExtensionProperties();
+		auto available_extensions = context.enumerateInstanceExtensionProperties();
 
 		DLOG("Instance Extension:");
 		for (uint32_t i = 0; i < extension_count; ++i) {
 			DLOG("  - {}", extensions[i]);
 			if (std::ranges::none_of(
 					available_extensions,
-					[extension =
-						 extensions[i]](auto const& available_extension) {
-						return std::strcmp(
-								   available_extension.extensionName,
-								   extension
-							   ) == 0;
+					[extension = extensions[i]](const auto &available_extension) {
+						return std::strcmp(available_extension.extensionName, extension) == 0;
 					}
 				)) {
 				throw std::runtime_error(
-					"Required extension not supported: " +
-					std::string(extensions[i])
+					"Required extension not supported: " + std::string(extensions[i])
 				);
 			}
 		}
@@ -157,18 +145,16 @@ private:
 
 	void create_surface() {
 		VkSurfaceKHR surface_khr;
-		if (glfwCreateWindowSurface(*instance, window, nullptr, &surface_khr) !=
-			VK_SUCCESS) {
+		if (glfwCreateWindowSurface(*instance, window, nullptr, &surface_khr) != VK_SUCCESS) {
 			throw std::runtime_error("Failed to create window surface");
 		}
 		surface = vk::raii::SurfaceKHR(instance, surface_khr);
 	}
 
-	DeviceSuitableness
-	get_device_suitableness(vk::raii::PhysicalDevice device) {
+	DeviceSuitableness get_device_suitableness(vk::raii::PhysicalDevice device) {
 		bool is_suitable = true;
 		bool is_api_supported = true;
-		std::map<char const*, bool> extension_support_map;
+		std::map<const char *, bool> extension_support_map;
 
 		auto property = device.getProperties();
 
@@ -178,15 +164,12 @@ private:
 		}
 
 		auto available_extensions = device.enumerateDeviceExtensionProperties();
-		for (auto const& extension : required_device_extensions) {
+		for (const auto &extension : required_device_extensions) {
 			extension_support_map[extension] = true;
 			auto iter = std::ranges::find_if(
 				available_extensions,
-				[extension](auto const& available_extension) {
-					return std::strcmp(
-						available_extension.extensionName,
-						extension
-					);
+				[extension](const auto &available_extension) {
+					return std::strcmp(available_extension.extensionName, extension);
 				}
 			);
 			if (iter == available_extensions.end()) {
@@ -200,7 +183,7 @@ private:
 		uint32_t graphics_queue_index = queue_families.size();
 		uint32_t present_queue_index = queue_families.size();
 		for (uint32_t i = 0; i < queue_families.size(); ++i) {
-			auto const& queue_family = queue_families.at(i);
+			const auto &queue_family = queue_families.at(i);
 
 			if (graphics_queue_index == queue_families.size() &&
 				(queue_family.queueFlags & vk::QueueFlagBits::eGraphics) !=
@@ -228,15 +211,13 @@ private:
 		DLOG("  Queue:");
 		DLOG(
 			"    Graphics Queue Index: {}",
-			graphics_queue_index == queue_families.size()
-				? "Not Found"
-				: std::to_string(graphics_queue_index)
+			graphics_queue_index == queue_families.size() ? "Not Found"
+														  : std::to_string(graphics_queue_index)
 		);
 		DLOG(
 			"    Present Queue Index: {}",
-			present_queue_index == queue_families.size()
-				? "Not Found"
-				: std::to_string(present_queue_index)
+			present_queue_index == queue_families.size() ? "Not Found"
+														 : std::to_string(present_queue_index)
 		);
 
 		return {
@@ -252,8 +233,7 @@ private:
 		auto property = device.getProperties();
 		if (property.deviceType == vk::PhysicalDeviceType::eDiscreteGpu) {
 			score += 1000;
-		} else if (property.deviceType ==
-				   vk::PhysicalDeviceType::eIntegratedGpu) {
+		} else if (property.deviceType == vk::PhysicalDeviceType::eIntegratedGpu) {
 			score += 200;
 		} else {
 			score += 100;
@@ -268,29 +248,18 @@ private:
 			throw std::runtime_error("No GPU that supports Vulkan found");
 		}
 
-		std::unordered_map<vk::raii::PhysicalDevice*, DeviceSuitableness>
-			device_suitableness_map;
-		std::ranges::for_each(
-			devices,
-			[this, &device_suitableness_map](auto& device) {
-				device_suitableness_map[&device] =
-					get_device_suitableness(device);
-			}
-		);
+		std::unordered_map<vk::raii::PhysicalDevice *, DeviceSuitableness> device_suitableness_map;
+		std::ranges::for_each(devices, [this, &device_suitableness_map](auto &device) {
+			device_suitableness_map[&device] = get_device_suitableness(device);
+		});
 
-		auto suitable_devices = std::ranges::filter_view(
-			devices,
-			[&device_suitableness_map](auto& device) {
+		auto suitable_devices =
+			std::ranges::filter_view(devices, [&device_suitableness_map](auto &device) {
 				return device_suitableness_map[&device].is_suitable;
-			}
-		);
+			});
 
-		std::multimap<
-			uint32_t,
-			vk::raii::PhysicalDevice*,
-			std::greater<uint32_t>>
-			device_scores;
-		for (auto& device : suitable_devices) {
+		std::multimap<uint32_t, vk::raii::PhysicalDevice *, std::greater<uint32_t>> device_scores;
+		for (auto &device : suitable_devices) {
 			uint32_t score = get_device_score(device);
 			device_scores.insert(std::make_pair(score, &device));
 		}
@@ -298,8 +267,7 @@ private:
 		for (auto score_pair : device_scores) {
 			if (score_pair.first > 0) {
 				physical_device = *score_pair.second;
-				device_suitableness =
-					device_suitableness_map[score_pair.second];
+				device_suitableness = device_suitableness_map[score_pair.second];
 				break;
 			}
 		}
@@ -332,31 +300,24 @@ private:
 			.pNext = &feature_chain.get<vk::PhysicalDeviceFeatures2>(),
 			.queueCreateInfoCount = 1,
 			.pQueueCreateInfos = &device_queue_create_info,
-			.enabledExtensionCount =
-				static_cast<uint32_t>(required_device_extensions.size()),
+			.enabledExtensionCount = static_cast<uint32_t>(required_device_extensions.size()),
 			.ppEnabledExtensionNames = required_device_extensions.data(),
 		};
 
 		device = vk::raii::Device(physical_device, device_create_info);
-		graphics_queue = vk::raii::Queue(
-			device,
-			device_suitableness.graphics_queue_index,
-			0
-		);
-		present_queue =
-			vk::raii::Queue(device, device_suitableness.present_queue_index, 0);
+		graphics_queue = vk::raii::Queue(device, device_suitableness.graphics_queue_index, 0);
+		present_queue = vk::raii::Queue(device, device_suitableness.present_queue_index, 0);
 	}
 
 	void create_swapchain() {
-		auto surface_capabilities =
-			physical_device.getSurfaceCapabilitiesKHR(surface);
-		std::vector<vk::SurfaceFormatKHR> available_formats =
-			physical_device.getSurfaceFormatsKHR(surface);
+		auto surface_capabilities = physical_device.getSurfaceCapabilitiesKHR(surface);
+		std::vector<vk::SurfaceFormatKHR> available_formats = physical_device.getSurfaceFormatsKHR(
+			surface
+		);
 		std::vector<vk::PresentModeKHR> available_present_mode =
 			physical_device.getSurfacePresentModesKHR(surface);
 
-		swapchain_surface_format =
-			choose_swap_surface_format(available_formats);
+		swapchain_surface_format = choose_swap_surface_format(available_formats);
 		swapchain_extent = choose_swap_extent(surface_capabilities);
 		auto min_image_count = std::max(3u, surface_capabilities.minImageCount);
 
@@ -388,20 +349,17 @@ private:
 			.oldSwapchain = nullptr,
 		};
 
-		if (device_suitableness.graphics_queue_index !=
-			device_suitableness.present_queue_index) {
+		if (device_suitableness.graphics_queue_index != device_suitableness.present_queue_index) {
 			std::array<uint32_t, 2> indices {
 				device_suitableness.graphics_queue_index,
 				device_suitableness.present_queue_index
 			};
 
-			swapchain_create_info.imageSharingMode =
-				vk::SharingMode::eConcurrent;
+			swapchain_create_info.imageSharingMode = vk::SharingMode::eConcurrent;
 			swapchain_create_info.queueFamilyIndexCount = 2;
 			swapchain_create_info.pQueueFamilyIndices = indices.data();
 		} else {
-			swapchain_create_info.imageSharingMode =
-				vk::SharingMode::eExclusive;
+			swapchain_create_info.imageSharingMode = vk::SharingMode::eExclusive;
 			swapchain_create_info.queueFamilyIndexCount = 0;
 			swapchain_create_info.pQueueFamilyIndices = nullptr;
 		}
@@ -411,9 +369,9 @@ private:
 	}
 
 	vk::SurfaceFormatKHR choose_swap_surface_format(
-		std::vector<vk::SurfaceFormatKHR> const& available_formats
+		const std::vector<vk::SurfaceFormatKHR> &available_formats
 	) {
-		for (auto const& format : available_formats) {
+		for (const auto &format : available_formats) {
 			if (format.format == vk::Format::eB8G8R8A8Srgb &&
 				format.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear) {
 				return format;
@@ -423,9 +381,9 @@ private:
 	}
 
 	vk::PresentModeKHR choose_present_mode(
-		std::vector<vk::PresentModeKHR> const& available_present_mode
+		const std::vector<vk::PresentModeKHR> &available_present_mode
 	) {
-		for (auto const& mode : available_present_mode) {
+		for (const auto &mode : available_present_mode) {
 			if (mode == vk::PresentModeKHR::eMailbox) {
 				return mode;
 			}
@@ -433,10 +391,8 @@ private:
 		return vk::PresentModeKHR::eFifo;
 	}
 
-	vk::Extent2D
-	choose_swap_extent(vk::SurfaceCapabilitiesKHR const& capabilities) {
-		if (capabilities.currentExtent.width !=
-			std::numeric_limits<uint32_t>::max()) {
+	vk::Extent2D choose_swap_extent(const vk::SurfaceCapabilitiesKHR &capabilities) {
+		if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
 			return capabilities.currentExtent;
 		}
 
@@ -473,7 +429,7 @@ private:
 			},
 		};
 
-		for (auto const& image : swapchain_images) {
+		for (const auto &image : swapchain_images) {
 			image_view_create_info.image = image;
 			swapchain_image_views.emplace_back(device, image_view_create_info);
 		}
@@ -483,8 +439,7 @@ private:
 		auto shader_code = read_shader_file("shaders/slang.spv");
 		DLOG("Shader size: {}", shader_code.size() * sizeof(char));
 
-		vk::raii::ShaderModule shader_module =
-			create_shader_module(shader_code);
+		vk::raii::ShaderModule shader_module = create_shader_module(shader_code);
 
 		vk::PipelineShaderStageCreateInfo vertex_stage_create_info {
 			.stage = vk::ShaderStageFlagBits::eVertex,
@@ -545,10 +500,8 @@ private:
 		};
 		vk::PipelineColorBlendAttachmentState color_blend_attachment {
 			.blendEnable = vk::False,
-			.colorWriteMask = vk::ColorComponentFlagBits::eR |
-							  vk::ColorComponentFlagBits::eG |
-							  vk::ColorComponentFlagBits::eB |
-							  vk::ColorComponentFlagBits::eA,
+			.colorWriteMask = vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
+							  vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA,
 		};
 		vk::PipelineColorBlendStateCreateInfo color_blending {
 			.logicOpEnable = vk::False,
@@ -585,17 +538,16 @@ private:
 		};
 	}
 
-	[[nodiscard]] vk::raii::ShaderModule
-	create_shader_module(std::vector<char> const& code) const {
+	[[nodiscard]] vk::raii::ShaderModule create_shader_module(const std::vector<char> &code) const {
 		vk::ShaderModuleCreateInfo shader_module_create_info {
 			.codeSize = code.size() * sizeof(char),
-			.pCode = reinterpret_cast<uint32_t const*>(code.data()),
+			.pCode = reinterpret_cast<const uint32_t *>(code.data()),
 		};
 
 		return vk::raii::ShaderModule(device, shader_module_create_info);
 	}
 
-	static std::vector<char> read_shader_file(char const* filepath) {
+	static std::vector<char> read_shader_file(const char *filepath) {
 		std::ifstream file(filepath, std::ios::ate | std::ios::binary);
 		if (!file.is_open()) {
 			throw std::runtime_error("Failed to open shader file");
@@ -618,10 +570,10 @@ int main() {
 
 	try {
 		skyhigh.run();
-	} catch (vk::SystemError const& e) {
+	} catch (const vk::SystemError &e) {
 		std::println(stderr, "Vulkan Error: {}", e.what());
 		return EXIT_FAILURE;
-	} catch (std::exception const& e) {
+	} catch (const std::exception &e) {
 		std::println(stderr, "Error: {}", e.what());
 		return EXIT_FAILURE;
 	}

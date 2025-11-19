@@ -9,10 +9,15 @@ AllowShortFunctionsOnASingleLine: Empty
 BinPackArguments: false
 BinPackLongBracedList: false
 BinPackParameters: OnePerLine
+ColumnLimit: 100
 IndentWidth: 4
 InsertBraces: true
-PointerAlignment: Left
-QualifierAlignment: Right
+InsertNewlineAtEOF: true
+KeepEmptyLines:
+  AtEndOfFile: true
+PenaltyBreakAssignment: 100
+PenaltyReturnTypeOnItsOwnLine: 10000
+QualifierAlignment: Left
 SpaceAfterCStyleCast: true
 SpaceBeforeCpp11BracedList: true
 TabWidth: 4
