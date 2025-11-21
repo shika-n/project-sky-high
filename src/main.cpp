@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <exception>
 #include <format>
@@ -17,12 +18,14 @@
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
+#include <vulkan/vk_platform.h>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_core.h>
 #include <vulkan/vulkan_enums.hpp>
 #include <vulkan/vulkan_handles.hpp>
 #include <vulkan/vulkan_raii.hpp>
 #include <vulkan/vulkan_structs.hpp>
+#include <vulkan/vulkan_to_string.hpp>
 
 #include "macros.h"
 
@@ -30,6 +33,15 @@ constexpr uint32_t WIDTH = 1280;
 constexpr uint32_t HEIGHT = 720;
 
 // TODO: Add validation layers
+const std::array<const char *, 1> validation_layers = {
+	"VK_LAYER_KHRONOS_validation",
+};
+
+#ifdef NDEBUG
+constexpr bool enable_validation_layer = false;
+#else
+constexpr bool enable_validation_layer = true;
+#endif
 
 struct DeviceSuitableness {
 	bool is_suitable = false;
@@ -73,6 +85,8 @@ private:
 	vk::raii::Semaphore render_finished_semaphore = nullptr;
 	vk::raii::Fence draw_fence = nullptr;
 
+	vk::raii::DebugUtilsMessengerEXT debug_messenger = nullptr;
+
 	DeviceSuitableness device_suitableness {};
 
 	std::vector<const char *> required_device_extensions = {
@@ -95,6 +109,7 @@ private:
 
 	void init_vulkan() {
 		create_instance();
+		setup_debug_messenger();
 		create_surface();
 		pick_physical_device();
 		create_logical_device();
@@ -130,13 +145,29 @@ private:
 			.apiVersion = vk::ApiVersion14,
 		};
 
-		uint32_t extension_count = 0;
-		auto extensions = glfwGetRequiredInstanceExtensions(&extension_count);
+		std::vector<const char *> required_layers;
+		if (enable_validation_layer) {
+			required_layers.assign(validation_layers.begin(), validation_layers.end());
+		}
+
+		auto layer_properties = context.enumerateInstanceLayerProperties();
+		if (std::ranges::any_of(required_layers, [&layer_properties](const auto &required_layer) {
+				return std::ranges::none_of(
+					layer_properties,
+					[required_layer](const auto &layer_property) {
+						return strcmp(layer_property.layerName, required_layer) == 0;
+					}
+				);
+			})) {
+			throw std::runtime_error("One or more required validation layers are not supported");
+		}
+
+		auto extensions = get_required_extensions();
 
 		auto available_extensions = context.enumerateInstanceExtensionProperties();
 
 		DLOG("Instance Extension:");
-		for (uint32_t i = 0; i < extension_count; ++i) {
+		for (uint32_t i = 0; i < extensions.size(); ++i) {
 			DLOG("  - {}", extensions[i]);
 			if (std::ranges::none_of(
 					available_extensions,
@@ -152,11 +183,50 @@ private:
 
 		vk::InstanceCreateInfo create_info {
 			.pApplicationInfo = &app_info,
-			.enabledExtensionCount = extension_count,
-			.ppEnabledExtensionNames = extensions,
+			.enabledLayerCount = static_cast<uint32_t>(required_layers.size()),
+			.ppEnabledLayerNames = required_layers.data(),
+			.enabledExtensionCount = static_cast<uint32_t>(extensions.size()),
+			.ppEnabledExtensionNames = extensions.data(),
 		};
 
 		instance = vk::raii::Instance(context, create_info);
+	}
+
+	std::vector<const char *> get_required_extensions() {
+		uint32_t glfw_extension_count = 0;
+		auto glfw_extensions = glfwGetRequiredInstanceExtensions(&glfw_extension_count);
+		std::vector extensions(glfw_extensions, glfw_extensions + glfw_extension_count);
+
+		if (enable_validation_layer) {
+			extensions.push_back(vk::EXTDebugUtilsExtensionName);
+		}
+
+		return extensions;
+	}
+
+	void setup_debug_messenger() {
+		if (!enable_validation_layer) {
+			return;
+		}
+
+		vk::DebugUtilsMessageSeverityFlagsEXT severity_flags(
+			vk::DebugUtilsMessageSeverityFlagBitsEXT::eVerbose |
+			vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning |
+			vk::DebugUtilsMessageSeverityFlagBitsEXT::eError
+		);
+		vk::DebugUtilsMessageTypeFlagsEXT message_type_flags(
+			vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral |
+			vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance |
+			vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation
+		);
+
+		vk::DebugUtilsMessengerCreateInfoEXT debug_messenger_info {
+			.messageSeverity = severity_flags,
+			.messageType = message_type_flags,
+			.pfnUserCallback = &debug_callback,
+		};
+
+		debug_messenger = instance.createDebugUtilsMessengerEXT(debug_messenger_info);
 	}
 
 	void create_surface() {
@@ -304,11 +374,13 @@ private:
 		};
 		vk::StructureChain<
 			vk::PhysicalDeviceFeatures2,
+			vk::PhysicalDeviceVulkan11Features,
 			vk::PhysicalDeviceVulkan13Features,
 			vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>
 			feature_chain {
 				{},
-				{.dynamicRendering = true},
+				{.shaderDrawParameters = true},
+				{.synchronization2 = true, .dynamicRendering = true},
 				{.extendedDynamicState = true},
 			};
 
@@ -728,6 +800,22 @@ private:
 		file.close();
 
 		return buffer;
+	}
+
+	static VKAPI_ATTR vk::Bool32 VKAPI_CALL debug_callback(
+		vk::DebugUtilsMessageSeverityFlagBitsEXT severity,
+		vk::DebugUtilsMessageTypeFlagsEXT type,
+		const vk::DebugUtilsMessengerCallbackDataEXT *p_callback_data,
+		void *
+	) {
+		std::println(
+			stderr,
+			"Validation layer: type {} [{}] message: {}",
+			vk::to_string(severity),
+			vk::to_string(type),
+			p_callback_data->pMessage
+		);
+		return vk::False;
 	}
 };
 
