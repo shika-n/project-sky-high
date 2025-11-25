@@ -87,6 +87,8 @@ private:
 	std::vector<vk::raii::Semaphore> render_finished_semaphores;
 	std::vector<vk::raii::Fence> draw_fences;
 
+	bool is_framebuffer_resized = false;
+
 	vk::raii::DebugUtilsMessengerEXT debug_messenger = nullptr;
 
 	DeviceSuitableness device_suitableness {};
@@ -106,9 +108,10 @@ private:
 		}
 
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-		glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
 		window = glfwCreateWindow(WIDTH, HEIGHT, "Project Sky-High", nullptr, nullptr);
+		glfwSetWindowUserPointer(window, this);
+		glfwSetFramebufferSizeCallback(window, framebuffer_resize_callback);
 	}
 
 	void init_vulkan() {
@@ -169,8 +172,9 @@ private:
 	}
 
 	void cleanup() {
-		glfwDestroyWindow(window);
+		cleanup_swapchain();
 
+		glfwDestroyWindow(window);
 		glfwTerminate();
 	}
 
@@ -802,46 +806,96 @@ private:
 
 	void draw_frame() {
 		device.waitIdle();
-
-		auto [result, image_index] = swapchain.acquireNextImage(
-			UINT64_MAX,
-			present_complete_semaphores[current_frame],
-			nullptr
-		);
-
-		record_command_buffer(image_index);
-		device.resetFences(*draw_fences[current_frame]);
-
-		vk::PipelineStageFlags wait_destination_stage_mask(
-			vk::PipelineStageFlagBits::eColorAttachmentOutput
-		);
-		const vk::SubmitInfo submit_info {
-			.waitSemaphoreCount = 1,
-			.pWaitSemaphores = &*present_complete_semaphores[current_frame],
-			.pWaitDstStageMask = &wait_destination_stage_mask,
-			.commandBufferCount = 1,
-			.pCommandBuffers = &*command_buffers[current_frame],
-			.signalSemaphoreCount = 1,
-			.pSignalSemaphores = &*render_finished_semaphores[current_frame],
-		};
-
-		graphics_queue.submit(submit_info, draw_fences[current_frame]);
-
 		while (vk::Result::eTimeout ==
 			   device.waitForFences(*draw_fences[current_frame], vk::True, UINT64_MAX))
 			;
 
-		vk::PresentInfoKHR present_info {
-			.waitSemaphoreCount = 1,
-			.pWaitSemaphores = &*render_finished_semaphores[current_frame],
-			.swapchainCount = 1,
-			.pSwapchains = &*swapchain,
-			.pImageIndices = &image_index,
-		};
+		try {
+			auto [result, image_index] = swapchain.acquireNextImage(
+				UINT64_MAX,
+				*present_complete_semaphores[current_frame],
+				nullptr
+			);
 
-		result = present_queue.presentKHR(present_info);
+			if (result == vk::Result::eErrorOutOfDateKHR) {
+				recreate_swapchain();
+				return;
+			}
+
+			if (result != vk::Result::eSuccess && result != vk::Result::eSuboptimalKHR) {
+				throw std::runtime_error("Failed to acquire swapchain image");
+			}
+
+			command_buffers[current_frame].reset();
+			record_command_buffer(image_index);
+			device.resetFences(*draw_fences[current_frame]);
+
+			vk::PipelineStageFlags wait_destination_stage_mask(
+				vk::PipelineStageFlagBits::eColorAttachmentOutput
+			);
+			const vk::SubmitInfo submit_info {
+				.waitSemaphoreCount = 1,
+				.pWaitSemaphores = &*present_complete_semaphores[current_frame],
+				.pWaitDstStageMask = &wait_destination_stage_mask,
+				.commandBufferCount = 1,
+				.pCommandBuffers = &*command_buffers[current_frame],
+				.signalSemaphoreCount = 1,
+				.pSignalSemaphores = &*render_finished_semaphores[current_frame],
+			};
+
+			graphics_queue.submit(submit_info, draw_fences[current_frame]);
+
+			vk::PresentInfoKHR present_info {
+				.waitSemaphoreCount = 1,
+				.pWaitSemaphores = &*render_finished_semaphores[current_frame],
+				.swapchainCount = 1,
+				.pSwapchains = &*swapchain,
+				.pImageIndices = &image_index,
+			};
+
+			result = present_queue.presentKHR(present_info);
+			if (result == vk::Result::eErrorOutOfDateKHR || result == vk::Result::eSuboptimalKHR ||
+				is_framebuffer_resized) {
+				is_framebuffer_resized = false;
+				recreate_swapchain();
+			} else if (result != vk::Result::eSuccess) {
+				throw std::runtime_error("Failed to present swapchain image");
+			}
+		} catch (const vk::SystemError &e) {
+			if (e.code().value() == static_cast<int>(vk::Result::eErrorOutOfDateKHR)) {
+				recreate_swapchain();
+				return;
+			} else {
+				throw e;
+			}
+		}
 
 		current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
+	}
+
+	void cleanup_swapchain() {
+		swapchain_images.clear();
+		swapchain = nullptr;
+	}
+
+	void recreate_swapchain() {
+		int width = 0;
+		int height = 0;
+		glfwGetFramebufferSize(window, &width, &height);
+		while (width == 0 || height == 0) {
+			glfwGetFramebufferSize(window, &width, &height);
+			glfwWaitEvents();
+		}
+
+		device.waitIdle();
+		while (vk::Result::eTimeout ==
+			   device.waitForFences(*draw_fences[current_frame], vk::True, UINT64_MAX))
+			;
+
+		cleanup_swapchain();
+
+		create_swapchain();
+		create_image_views();
 	}
 
 	static std::vector<char> read_shader_file(const char *filepath) {
@@ -857,6 +911,12 @@ private:
 		file.close();
 
 		return buffer;
+	}
+
+	static void framebuffer_resize_callback(GLFWwindow *window, int width, int height) {
+		auto app = reinterpret_cast<ProjectSkyHigh *>(glfwGetWindowUserPointer(window));
+		app->is_framebuffer_resized = true;
+		DLOG("Resized to: {}x{}", width, height);
 	}
 
 	static VKAPI_ATTR vk::Bool32 VKAPI_CALL debug_callback(
