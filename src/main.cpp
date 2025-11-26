@@ -115,6 +115,8 @@ private:
 
 	vk::raii::Buffer vertex_buffer = nullptr;
 	vk::raii::DeviceMemory vertex_buffer_memory = nullptr;
+	vk::raii::Buffer index_buffer = nullptr;
+	vk::raii::DeviceMemory index_buffer_memory = nullptr;
 
 	std::vector<vk::raii::Semaphore> present_complete_semaphores;
 	std::vector<vk::raii::Semaphore> render_finished_semaphores;
@@ -136,10 +138,13 @@ private:
 	};
 
 	const std::vector<Vertex> vertices = {
-		{{0.0f, -0.5f}, {1.0f, 1.0f, 1.0f}},
-		{{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
-		{{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
+		{{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+		{{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
+		{{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
+		{{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}},
 	};
+
+	const std::vector<uint16_t> indices = {0, 1, 2, 2, 3, 0};
 
 	void init_window() {
 		if (!glfwInit()) {
@@ -164,6 +169,7 @@ private:
 		create_graphics_pipeline();
 		create_command_pool();
 		create_vertex_buffer();
+		create_index_buffer();
 		create_command_buffers();
 		create_sync_objects();
 	}
@@ -791,6 +797,34 @@ private:
 		copy_buffer(staging_buffer, vertex_buffer, buffer_size);
 	}
 
+	void create_index_buffer() {
+		auto buffer_size = sizeof(indices[0]) * indices.size();
+
+		vk::raii::Buffer staging_buffer = nullptr;
+		vk::raii::DeviceMemory staging_buffer_memory = nullptr;
+		create_buffer(
+			buffer_size,
+			vk::BufferUsageFlagBits::eTransferSrc,
+			vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
+			staging_buffer,
+			staging_buffer_memory
+		);
+		void *staging_data = staging_buffer_memory.mapMemory(0, buffer_size);
+		memcpy(staging_data, indices.data(), buffer_size);
+		staging_buffer_memory.unmapMemory();
+		staging_data = nullptr;
+
+		create_buffer(
+			buffer_size,
+			vk::BufferUsageFlagBits::eIndexBuffer | vk::BufferUsageFlagBits::eTransferDst,
+			vk::MemoryPropertyFlagBits::eDeviceLocal,
+			index_buffer,
+			index_buffer_memory
+		);
+
+		copy_buffer(staging_buffer, index_buffer, buffer_size);
+	}
+
 	void copy_buffer(vk::raii::Buffer &src, vk::raii::Buffer &dst, vk::DeviceSize size) {
 		vk::CommandBufferAllocateInfo allocate_info {
 			.commandPool = command_pool,
@@ -913,8 +947,10 @@ private:
 		);
 
 		command_buffers[current_frame].bindVertexBuffers(0, *vertex_buffer, {0});
+		command_buffers[current_frame].bindIndexBuffer(index_buffer, 0, vk::IndexType::eUint16);
 
-		command_buffers[current_frame].draw(vertices.size(), 1, 0, 0);
+		// command_buffers[current_frame].draw(3, 1, 1, 0);
+		command_buffers[current_frame].drawIndexed(indices.size(), 1, 0, 0, 0);
 		command_buffers[current_frame].endRendering();
 
 		transition_image_layout(
