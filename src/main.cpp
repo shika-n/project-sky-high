@@ -1,12 +1,15 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <exception>
 #include <format>
 #include <fstream>
 #include <functional>
+#include <glm/ext/vector_float2.hpp>
+#include <glm/ext/vector_float3.hpp>
 #include <ios>
 #include <limits>
 #include <map>
@@ -18,6 +21,7 @@
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
+#include <glm/glm.hpp>
 #include <vulkan/vk_platform.h>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_core.h>
@@ -49,6 +53,32 @@ struct DeviceSuitableness {
 	bool is_suitable = false;
 	uint32_t graphics_queue_index = 0;
 	uint32_t present_queue_index = 0;
+};
+
+struct Vertex {
+	glm::vec2 position;
+	glm::vec3 color;
+
+	static vk::VertexInputBindingDescription get_binding_description() {
+		return {0, sizeof(Vertex), vk::VertexInputRate::eVertex};
+	}
+
+	static std::array<vk::VertexInputAttributeDescription, 2> get_attribute_description() {
+		return {
+			vk::VertexInputAttributeDescription {
+				0,
+				0,
+				vk::Format::eR32G32Sfloat,
+				offsetof(Vertex, position)
+			},
+			vk::VertexInputAttributeDescription {
+				1,
+				0,
+				vk::Format::eR32G32B32Sfloat,
+				offsetof(Vertex, color)
+			}
+		};
+	}
 };
 
 class ProjectSkyHigh {
@@ -83,6 +113,9 @@ private:
 	vk::raii::CommandPool command_pool = nullptr;
 	std::vector<vk::raii::CommandBuffer> command_buffers;
 
+	vk::raii::Buffer vertex_buffer = nullptr;
+	vk::raii::DeviceMemory vertex_buffer_memory = nullptr;
+
 	std::vector<vk::raii::Semaphore> present_complete_semaphores;
 	std::vector<vk::raii::Semaphore> render_finished_semaphores;
 	std::vector<vk::raii::Fence> draw_fences;
@@ -100,6 +133,12 @@ private:
 		vk::KHRSpirv14ExtensionName,
 		vk::KHRSynchronization2ExtensionName,
 		vk::KHRCreateRenderpass2ExtensionName,
+	};
+
+	const std::vector<Vertex> vertices = {
+		{{0.0f, -0.5f}, {1.0f, 1.0f, 1.0f}},
+		{{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
+		{{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
 	};
 
 	void init_window() {
@@ -124,6 +163,7 @@ private:
 		create_image_views();
 		create_graphics_pipeline();
 		create_command_pool();
+		create_vertex_buffer();
 		create_command_buffers();
 		create_sync_objects();
 	}
@@ -574,12 +614,12 @@ private:
 		vk::PipelineShaderStageCreateInfo vertex_stage_create_info {
 			.stage = vk::ShaderStageFlagBits::eVertex,
 			.module = shader_module,
-			.pName = "vertMain",
+			.pName = "vert_main",
 		};
 		vk::PipelineShaderStageCreateInfo fragment_stage_create_info {
 			.stage = vk::ShaderStageFlagBits::eFragment,
 			.module = shader_module,
-			.pName = "fragMain",
+			.pName = "frag_main",
 		};
 
 		std::array<vk::PipelineShaderStageCreateInfo, 2> shader_stages {
@@ -596,7 +636,14 @@ private:
 			.pDynamicStates = dynamic_states.data(),
 		};
 
-		vk::PipelineVertexInputStateCreateInfo vertex_input_info;
+		auto binding_description = Vertex::get_binding_description();
+		auto attribute_description = Vertex::get_attribute_description();
+		vk::PipelineVertexInputStateCreateInfo vertex_input_info {
+			.vertexBindingDescriptionCount = 1,
+			.pVertexBindingDescriptions = &binding_description,
+			.vertexAttributeDescriptionCount = attribute_description.size(),
+			.pVertexAttributeDescriptions = attribute_description.data(),
+		};
 		vk::PipelineInputAssemblyStateCreateInfo input_assembly_info {
 			.topology = vk::PrimitiveTopology::eTriangleList
 		};
@@ -689,6 +736,46 @@ private:
 		command_buffers = vk::raii::CommandBuffers(device, allocateInfo);
 	}
 
+	void create_vertex_buffer() {
+		vk::BufferCreateInfo buffer_info {
+			.size = sizeof(vertices[0]) * vertices.size(),
+			.usage = vk::BufferUsageFlagBits::eVertexBuffer,
+			.sharingMode = vk::SharingMode::eExclusive,
+		};
+
+		vertex_buffer = vk::raii::Buffer(device, buffer_info);
+
+		auto memory_requirements = vertex_buffer.getMemoryRequirements();
+		vk::MemoryAllocateInfo memory_allocate_info {
+			.allocationSize = memory_requirements.size,
+			.memoryTypeIndex = find_memory_type(
+				memory_requirements.memoryTypeBits,
+				vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent
+			)
+		};
+
+		vertex_buffer_memory = vk::raii::DeviceMemory(device, memory_allocate_info);
+
+		vertex_buffer.bindMemory(vertex_buffer_memory, 0);
+
+		void *data = vertex_buffer_memory.mapMemory(0, buffer_info.size);
+		memcpy(data, vertices.data(), buffer_info.size);
+		vertex_buffer_memory.unmapMemory();
+		data = nullptr;
+	}
+
+	uint32_t find_memory_type(uint32_t type_filter, vk::MemoryPropertyFlags properties) {
+		auto memory_properties = physical_device.getMemoryProperties();
+		for (uint32_t i = 0; i < memory_properties.memoryTypeCount; ++i) {
+			if (type_filter & (1 << i) &&
+				(memory_properties.memoryTypes[i].propertyFlags & properties) == properties) {
+				return i;
+			}
+		}
+
+		throw std::runtime_error("Failed to find suitable memory type");
+	}
+
 	void transition_image_layout(
 		uint32_t image_index,
 		vk::ImageLayout old_layout,
@@ -773,7 +860,10 @@ private:
 			0,
 			vk::Rect2D(vk::Offset2D(0, 0), swapchain_extent)
 		);
-		command_buffers[current_frame].draw(3, 1, 0, 0);
+
+		command_buffers[current_frame].bindVertexBuffers(0, *vertex_buffer, {0});
+
+		command_buffers[current_frame].draw(vertices.size(), 1, 0, 0);
 		command_buffers[current_frame].endRendering();
 
 		transition_image_layout(
