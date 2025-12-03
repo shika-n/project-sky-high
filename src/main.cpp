@@ -37,6 +37,9 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/trigonometric.hpp>
 
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
+
 #include "macros.h"
 
 constexpr uint32_t WIDTH = 1280;
@@ -141,6 +144,9 @@ private:
 	std::vector<vk::raii::Semaphore> render_finished_semaphores;
 	std::vector<vk::raii::Fence> draw_fences;
 
+	vk::raii::Image texture_image = nullptr;
+	vk::raii::DeviceMemory texture_memory = nullptr;
+
 	bool is_framebuffer_resized = false;
 
 	vk::raii::DebugUtilsMessengerEXT debug_messenger = nullptr;
@@ -188,6 +194,7 @@ private:
 		create_descriptor_layout();
 		create_graphics_pipeline();
 		create_command_pool();
+		create_texture_image();
 		create_vertex_buffer();
 		create_index_buffer();
 		create_uniform_buffers();
@@ -773,6 +780,132 @@ private:
 		command_pool = vk::raii::CommandPool(device, pool_info);
 	}
 
+	void create_texture_image() {
+		int texture_width = 0;
+		int texture_height = 0;
+		int texture_channels = 0;
+		stbi_uc *pixels = stbi_load(
+			"textures/texture.jpg",
+			&texture_width,
+			&texture_height,
+			&texture_channels,
+			STBI_rgb_alpha
+		);
+
+		vk::DeviceSize image_size = texture_width * texture_height * 4;
+
+		if (!pixels) {
+			// TODO: handle missing texture without throwing
+			throw std::runtime_error("Failed to load texture image");
+		}
+
+		vk::raii::Buffer staging_buffer({});
+		vk::raii::DeviceMemory staging_memory({});
+		create_buffer(
+			image_size,
+			vk::BufferUsageFlagBits::eTransferSrc,
+			vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
+			staging_buffer,
+			staging_memory
+		);
+
+		void *data = staging_memory.mapMemory(0, image_size);
+		memcpy(data, pixels, image_size);
+		staging_memory.unmapMemory();
+		data = nullptr;
+
+		stbi_image_free(pixels);
+		pixels = nullptr;
+
+		create_image(
+			texture_width,
+			texture_height,
+			vk::Format::eR8G8B8A8Srgb,
+			vk::ImageTiling::eOptimal,
+			vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled,
+			vk::MemoryPropertyFlagBits::eDeviceLocal,
+			texture_image,
+			texture_memory
+		);
+
+		transition_image_layout(
+			texture_image,
+			vk::ImageLayout::eUndefined,
+			vk::ImageLayout::eTransferDstOptimal
+		);
+		copy_buffer_to_image(staging_buffer, texture_image, texture_width, texture_height);
+		transition_image_layout(
+			texture_image,
+			vk::ImageLayout::eTransferDstOptimal,
+			vk::ImageLayout::eShaderReadOnlyOptimal
+		);
+	}
+
+	void create_image(
+		uint32_t width,
+		uint32_t height,
+		vk::Format format,
+		vk::ImageTiling tiling,
+		vk::ImageUsageFlags usage,
+		vk::MemoryPropertyFlags properties,
+		vk::raii::Image &image,
+		vk::raii::DeviceMemory &image_memory
+	) {
+		vk::ImageCreateInfo image_info {
+			.imageType = vk::ImageType::e2D,
+			.format = format,
+			.extent = {width, height, 1},
+			.mipLevels = 1,
+			.arrayLayers = 1,
+			.samples = vk::SampleCountFlagBits::e1,
+			.tiling = tiling,
+			.usage = usage,
+			.sharingMode = vk::SharingMode::eExclusive,
+		};
+
+		image = vk::raii::Image(device, image_info);
+
+		vk::MemoryRequirements memory_requirements = image.getMemoryRequirements();
+		vk::MemoryAllocateInfo allocate_info {
+			.allocationSize = memory_requirements.size,
+			.memoryTypeIndex = find_memory_type(memory_requirements.memoryTypeBits, properties),
+		};
+
+		image_memory = vk::raii::DeviceMemory(device, allocate_info);
+		image.bindMemory(image_memory, 0);
+	}
+
+	vk::raii::CommandBuffer begin_single_time_commands() {
+		vk::CommandBufferAllocateInfo allocate_info {
+			.commandPool = command_pool,
+			.level = vk::CommandBufferLevel::ePrimary,
+			.commandBufferCount = 1,
+		};
+
+		vk::raii::CommandBuffer command_buffer = std::move(
+			device.allocateCommandBuffers(allocate_info).front()
+		);
+
+		vk::CommandBufferBeginInfo begin_info {
+			.flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit
+		};
+		command_buffer.begin(begin_info);
+
+		return command_buffer;
+	}
+
+	void end_single_time_commands(vk::raii::CommandBuffer &command_buffer) {
+		command_buffer.end();
+
+		vk::SubmitInfo submit_info {
+			.commandBufferCount = 1,
+			.pCommandBuffers = &*command_buffer,
+		};
+
+		graphics_queue.submit(submit_info, nullptr);
+		graphics_queue.waitIdle();
+	}
+
 	void create_command_buffers() {
 		vk::CommandBufferAllocateInfo allocateInfo {
 			.commandPool = command_pool,
@@ -937,27 +1070,32 @@ private:
 	}
 
 	void copy_buffer(vk::raii::Buffer &src, vk::raii::Buffer &dst, vk::DeviceSize size) {
-		vk::CommandBufferAllocateInfo allocate_info {
-			.commandPool = command_pool,
-			.level = vk::CommandBufferLevel::ePrimary,
-			.commandBufferCount = 1,
-		};
-		vk::raii::CommandBuffer command_copy_buffer = std::move(
-			device.allocateCommandBuffers(allocate_info).front()
-		);
-
-		command_copy_buffer.begin({.flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit});
+		vk::raii::CommandBuffer command_copy_buffer = begin_single_time_commands();
 		command_copy_buffer.copyBuffer(src, dst, vk::BufferCopy {0, 0, size});
-		command_copy_buffer.end();
+		end_single_time_commands(command_copy_buffer);
+	}
 
-		graphics_queue.submit(
-			vk::SubmitInfo {
-				.commandBufferCount = 1,
-				.pCommandBuffers = &*command_copy_buffer,
-			},
-			nullptr
-		);
-		graphics_queue.waitIdle();
+	void copy_buffer_to_image(
+		const vk::raii::Buffer &buffer,
+		vk::raii::Image &image,
+		uint32_t width,
+		uint32_t height
+	) {
+		vk::raii::CommandBuffer command_buffer = begin_single_time_commands();
+
+		vk::BufferImageCopy region {
+			.bufferOffset = 0,
+			.bufferRowLength = 0,
+			.bufferImageHeight = 0,
+			.imageSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1},
+			.imageOffset = {0, 0, 0},
+			.imageExtent = {width, height, 1},
+		};
+
+		command_buffer
+			.copyBufferToImage(buffer, image, vk::ImageLayout::eTransferDstOptimal, region);
+
+		end_single_time_commands(command_buffer);
 	}
 
 	uint32_t find_memory_type(uint32_t type_filter, vk::MemoryPropertyFlags properties) {
@@ -970,6 +1108,52 @@ private:
 		}
 
 		throw std::runtime_error("Failed to find suitable memory type");
+	}
+
+	void transition_image_layout(
+		const vk::raii::Image &image,
+		vk::ImageLayout old_layout,
+		vk::ImageLayout new_layout
+	) {
+		auto command_buffer = begin_single_time_commands();
+
+		vk::PipelineStageFlags source_stage;
+		vk::PipelineStageFlags destination_stage;
+
+		vk::ImageMemoryBarrier barrier {
+			.oldLayout = old_layout,
+			.newLayout = new_layout,
+			.image = image,
+			.subresourceRange = {
+				.aspectMask = vk::ImageAspectFlagBits::eColor,
+				.baseMipLevel = 0,
+				.levelCount = 1,
+				.baseArrayLayer = 0,
+				.layerCount = 1,
+			}
+		};
+
+		if (old_layout == vk::ImageLayout::eUndefined &&
+			new_layout == vk::ImageLayout::eTransferDstOptimal) {
+			barrier.srcAccessMask = {};
+			barrier.dstAccessMask = vk::AccessFlagBits::eTransferWrite;
+
+			source_stage = vk::PipelineStageFlagBits::eTopOfPipe;
+			destination_stage = vk::PipelineStageFlagBits::eTransfer;
+		} else if (old_layout == vk::ImageLayout::eTransferDstOptimal &&
+				   new_layout == vk::ImageLayout::eShaderReadOnlyOptimal) {
+			barrier.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
+			barrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
+
+			source_stage = vk::PipelineStageFlagBits::eTransfer;
+			destination_stage = vk::PipelineStageFlagBits::eFragmentShader;
+		} else {
+			throw std::invalid_argument("Unsupported layout transition");
+		}
+
+		command_buffer.pipelineBarrier(source_stage, destination_stage, {}, {}, nullptr, barrier);
+
+		end_single_time_commands(command_buffer);
 	}
 
 	void transition_image_layout(
