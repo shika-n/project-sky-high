@@ -67,12 +67,13 @@ struct DeviceSuitableness {
 struct Vertex {
 	glm::vec2 position;
 	glm::vec3 color;
+	glm::vec2 tex_coord;
 
 	static vk::VertexInputBindingDescription get_binding_description() {
 		return {0, sizeof(Vertex), vk::VertexInputRate::eVertex};
 	}
 
-	static std::array<vk::VertexInputAttributeDescription, 2> get_attribute_description() {
+	static std::array<vk::VertexInputAttributeDescription, 3> get_attribute_description() {
 		return {
 			vk::VertexInputAttributeDescription {
 				0,
@@ -85,6 +86,12 @@ struct Vertex {
 				0,
 				vk::Format::eR32G32B32Sfloat,
 				offsetof(Vertex, color)
+			},
+			vk::VertexInputAttributeDescription {
+				2,
+				0,
+				vk::Format::eR32G32Sfloat,
+				offsetof(Vertex, tex_coord)
 			}
 		};
 	}
@@ -146,6 +153,8 @@ private:
 
 	vk::raii::Image texture_image = nullptr;
 	vk::raii::DeviceMemory texture_memory = nullptr;
+	vk::raii::ImageView texture_image_view = nullptr;
+	vk::raii::Sampler texture_sampler = nullptr;
 
 	bool is_framebuffer_resized = false;
 
@@ -163,10 +172,10 @@ private:
 	};
 
 	const std::vector<Vertex> vertices = {
-		{{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
-		{{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
-		{{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
-		{{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}},
+		{{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
+		{{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+		{{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
+		{{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
 	};
 
 	const std::vector<uint16_t> indices = {0, 1, 2, 2, 3, 0};
@@ -195,6 +204,8 @@ private:
 		create_graphics_pipeline();
 		create_command_pool();
 		create_texture_image();
+		create_texture_image_view();
+		create_texture_sampler();
 		create_vertex_buffer();
 		create_index_buffer();
 		create_uniform_buffers();
@@ -358,6 +369,7 @@ private:
 	DeviceSuitableness get_device_suitableness(vk::raii::PhysicalDevice device) {
 		bool is_suitable = true;
 		bool is_api_supported = true;
+		bool anisotropy_support = true;
 		std::map<const char *, bool> extension_support_map;
 
 		auto property = device.getProperties();
@@ -380,6 +392,12 @@ private:
 				is_suitable = false;
 				extension_support_map[extension] = false;
 			}
+		}
+
+		auto supported_features = device.getFeatures();
+		if (!supported_features.samplerAnisotropy) {
+			is_suitable = false;
+			anisotropy_support = false;
 		}
 
 		// TODO: Improve queue query
@@ -412,6 +430,7 @@ private:
 		for (auto entry : extension_support_map) {
 			DLOG("    - {}: {}", entry.first, entry.second ? "Yes" : "No");
 		}
+		DLOG("Anisotropy Support: {}", anisotropy_support);
 		DLOG("  Queue:");
 		DLOG(
 			"    Graphics Queue Index: {}",
@@ -496,7 +515,7 @@ private:
 			vk::PhysicalDeviceVulkan13Features,
 			vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>
 			feature_chain {
-				{},
+				{.features = {.samplerAnisotropy = vk::True}},
 				{.shaderDrawParameters = true},
 				{.synchronization2 = true, .dynamicRendering = true},
 				{.extendedDynamicState = true},
@@ -620,39 +639,53 @@ private:
 		};
 	}
 
-	void create_image_views() {
-		swapchain_image_views.clear();
-
-		vk::ImageViewCreateInfo image_view_create_info {
+	vk::raii::ImageView create_image_view(vk::Image image, vk::Format format) {
+		vk::ImageViewCreateInfo view_info {
+			.image = image,
 			.viewType = vk::ImageViewType::e2D,
-			.format = swapchain_surface_format.format,
+			.format = format,
 			.subresourceRange = {
 				.aspectMask = vk::ImageAspectFlagBits::eColor,
 				.baseMipLevel = 0,
 				.levelCount = 1,
 				.baseArrayLayer = 0,
 				.layerCount = 1,
-			},
+			}
 		};
+		return vk::raii::ImageView(device, view_info);
+	}
 
+	void create_image_views() {
+		swapchain_image_views.clear();
+		swapchain_image_views.reserve(swapchain_images.size());
 		for (const auto &image : swapchain_images) {
-			image_view_create_info.image = image;
-			swapchain_image_views.emplace_back(device, image_view_create_info);
+			swapchain_image_views.emplace_back(
+				create_image_view(image, swapchain_surface_format.format)
+			);
 		}
 	}
 
 	void create_descriptor_layout() {
-		vk::DescriptorSetLayoutBinding ubo_layout_binding {
-			.binding = 0,
-			.descriptorType = vk::DescriptorType::eUniformBuffer,
-			.descriptorCount = 1,
-			.stageFlags = vk::ShaderStageFlagBits::eVertex,
-			.pImmutableSamplers = nullptr,
+		std::array bindings = {
+			vk::DescriptorSetLayoutBinding {
+				.binding = 0,
+				.descriptorType = vk::DescriptorType::eUniformBuffer,
+				.descriptorCount = 1,
+				.stageFlags = vk::ShaderStageFlagBits::eVertex,
+				.pImmutableSamplers = nullptr,
+			},
+			vk::DescriptorSetLayoutBinding {
+				.binding = 1,
+				.descriptorType = vk::DescriptorType::eCombinedImageSampler,
+				.descriptorCount = 1,
+				.stageFlags = vk::ShaderStageFlagBits::eFragment,
+				.pImmutableSamplers = nullptr,
+			}
 		};
 
 		vk::DescriptorSetLayoutCreateInfo layout_info {
-			.bindingCount = 1,
-			.pBindings = &ubo_layout_binding,
+			.bindingCount = bindings.size(),
+			.pBindings = bindings.data(),
 		};
 
 		descriptor_set_layout = vk::raii::DescriptorSetLayout(device, layout_info);
@@ -841,6 +874,27 @@ private:
 		);
 	}
 
+	void create_texture_image_view() {
+		texture_image_view = create_image_view(texture_image, vk::Format::eR8G8B8A8Srgb);
+	}
+
+	void create_texture_sampler() {
+		vk::PhysicalDeviceProperties properties = physical_device.getProperties();
+		vk::SamplerCreateInfo sampler_info {
+			.magFilter = vk::Filter::eLinear,
+			.minFilter = vk::Filter::eLinear,
+			.mipmapMode = vk::SamplerMipmapMode::eLinear,
+			.addressModeU = vk::SamplerAddressMode::eRepeat,
+			.addressModeV = vk::SamplerAddressMode::eRepeat,
+			.addressModeW = vk::SamplerAddressMode::eRepeat,
+			.anisotropyEnable = vk::True,
+			.maxAnisotropy = properties.limits.maxSamplerAnisotropy,
+			.compareEnable = vk::False,
+			.compareOp = vk::CompareOp::eAlways,
+		};
+		texture_sampler = vk::raii::Sampler(device, sampler_info);
+	}
+
 	void create_image(
 		uint32_t width,
 		uint32_t height,
@@ -1024,16 +1078,22 @@ private:
 	}
 
 	void create_descriptor_pool() {
-		vk::DescriptorPoolSize pool_size {
-			.type = vk::DescriptorType::eUniformBuffer,
-			.descriptorCount = MAX_FRAMES_IN_FLIGHT,
+		std::array pool_sizes {
+			vk::DescriptorPoolSize {
+				.type = vk::DescriptorType::eUniformBuffer,
+				.descriptorCount = MAX_FRAMES_IN_FLIGHT,
+			},
+			vk::DescriptorPoolSize {
+				.type = vk::DescriptorType::eCombinedImageSampler,
+				.descriptorCount = MAX_FRAMES_IN_FLIGHT,
+			},
 		};
 
 		vk::DescriptorPoolCreateInfo pool_info {
 			.flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
 			.maxSets = MAX_FRAMES_IN_FLIGHT,
-			.poolSizeCount = 1,
-			.pPoolSizes = &pool_size,
+			.poolSizeCount = pool_sizes.size(),
+			.pPoolSizes = pool_sizes.data(),
 		};
 
 		descriptor_pool = vk::raii::DescriptorPool(device, pool_info);
@@ -1057,15 +1117,30 @@ private:
 				.offset = 0,
 				.range = sizeof(UniformBufferObject),
 			};
-			vk::WriteDescriptorSet descriptor_write {
-				.dstSet = descriptor_sets[i],
-				.dstBinding = 0,
-				.dstArrayElement = 0,
-				.descriptorCount = 1,
-				.descriptorType = vk::DescriptorType::eUniformBuffer,
-				.pBufferInfo = &buffer_info,
+			vk::DescriptorImageInfo image_info {
+				.sampler = texture_sampler,
+				.imageView = texture_image_view,
+				.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
 			};
-			device.updateDescriptorSets(descriptor_write, {});
+			std::array descriptor_writes {
+				vk::WriteDescriptorSet {
+					.dstSet = descriptor_sets[i],
+					.dstBinding = 0,
+					.dstArrayElement = 0,
+					.descriptorCount = 1,
+					.descriptorType = vk::DescriptorType::eUniformBuffer,
+					.pBufferInfo = &buffer_info,
+				},
+				vk::WriteDescriptorSet {
+					.dstSet = descriptor_sets[i],
+					.dstBinding = 1,
+					.dstArrayElement = 0,
+					.descriptorCount = 1,
+					.descriptorType = vk::DescriptorType::eCombinedImageSampler,
+					.pImageInfo = &image_info,
+				},
+			};
+			device.updateDescriptorSets(descriptor_writes, {});
 		}
 	}
 
