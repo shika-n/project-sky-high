@@ -76,7 +76,7 @@ def run(project_dir: str):
             "build",
             "Debug",
             "src",
-            "SkyHigh",
+            "Tramogi",
         ),
     ])
 

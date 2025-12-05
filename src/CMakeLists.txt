@@ -1,6 +1,13 @@
+add_subdirectory(platform)
+
 add_executable(
 	${PROJECT_NAME}
 	main.cpp
+)
+set_target_properties(
+	${PROJECT_NAME}
+	PROPERTIES
+		OUTPUT_NAME Tramogi
 )
 
 target_link_libraries(
@@ -12,6 +19,8 @@ target_link_libraries(
 		glm::glm
 		stb::stb
 		Vulkan::Headers
+
+		${PROJECT_NAME}-platform
 )
 
 function (add_slang_shader_target TARGET)

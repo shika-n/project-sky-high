@@ -1,4 +1,4 @@
-# Project Sky High
+# Project Tramogi
 
 A game engine project with goals I don't think I can achieve.
 

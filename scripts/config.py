@@ -1,6 +1,6 @@
 VENV_NAME = ".venv"
 
-CONAN_PROFILE_NAME = "project-sky-high"
+CONAN_PROFILE_NAME = "tramogi"
 GLFW_VERSION = "3.4"
 
-IMAGE_NAME = "sky-high-builder"
+IMAGE_NAME = "tramogi-builder"
