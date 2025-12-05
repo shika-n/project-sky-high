@@ -1,5 +1,5 @@
 {
-	"version": 1,
+	"version": 10,
 	"configurePresets": [
 		{
 			"name": "default",
@@ -8,6 +8,12 @@
 			"environment": {
 				"CMAKE_BUILD_TYPE": "Debug"
 			}
+		}
+	],
+	"buildPresets": [
+		{
+			"name": "default",
+			"configurePreset": "default"
 		}
 	]
 }
