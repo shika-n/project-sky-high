@@ -7,11 +7,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-find_package(glfw3 REQUIRED)
-find_package(glm REQUIRED)
-find_package(stb REQUIRED)
-find_package(VulkanHeaders REQUIRED)
+# set(CMAKE_SKIP_BUILD_RPATH TRUE)
 
+add_subdirectory(external/glfw)
+add_subdirectory(external/glm)
+add_subdirectory(external/Vulkan-Headers)
+
+include_directories(external/stb)
 include_directories(include)
 
 add_compile_options(

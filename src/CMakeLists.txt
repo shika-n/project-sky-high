@@ -17,7 +17,6 @@ target_link_libraries(
 		stdc++exp
 		glfw
 		glm::glm
-		stb::stb
 		Vulkan::Headers
 
 		${PROJECT_NAME}-platform

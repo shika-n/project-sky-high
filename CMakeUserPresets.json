@@ -1,0 +1,13 @@
+{
+	"version": 1,
+	"configurePresets": [
+		{
+			"name": "default",
+			"generator": "Ninja",
+			"binaryDir": "${sourceDir}/build/debug",
+			"environment": {
+				"CMAKE_BUILD_TYPE": "Debug"
+			}
+		}
+	]
+}

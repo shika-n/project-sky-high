@@ -4,5 +4,3 @@
 __pycache__/
 build/
 /shaders/
-
-CMakeUserPresets.json
